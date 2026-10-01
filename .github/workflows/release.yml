@@ -69,42 +69,40 @@ jobs:
       - name: Build with PyInstaller
         run: ${{ matrix.build_cmd }}
 
-      # Упаковка билдов в архивы
-      - name: Compress Build Directory (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          powershell Compress-Archive -Path dist/PhageGrowthAnalyzer -DestinationPath PhageGrowthAnalyzer-Windows.zip
-
-      - name: Compress Build Directory (Linux / macOS)
-        if: runner.os != 'Windows'
-        run: |
-          tar -czvf PhageGrowthAnalyzer-${{ runner.os }}.tar.gz -C dist PhageGrowthAnalyzer
-
-      # Сохранение артефактов сборки (доступны для скачивания из запуска Workflow)
+      # Загружаем готовую папку сборки напрямую (GitHub сам упакует её в аккуратный .zip)
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: |
-            PhageGrowthAnalyzer-Windows.zip
-            PhageGrowthAnalyzer-*.tar.gz
-          retention-days: 7 # Срок хранения тестовых артефактов (дней)
+          path: dist/PhageGrowthAnalyzer
+          retention-days: 7
 
   release:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    # Этот шаг СТРОГО выполняется, ТОЛЬКО если push был по тегу (например, v1.0.0)
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Упаковываем артефакты в архив перед загрузкой в GitHub Release
+      - name: Prepare Release Archives
+        run: |
+          cd artifacts
+          zip -r ../PhageGrowthAnalyzer-Windows.zip PhageGrowthAnalyzer-Windows
+          tar -czvf ../PhageGrowthAnalyzer-Linux.tar.gz PhageGrowthAnalyzer-Linux
+          tar -czvf ../PhageGrowthAnalyzer-macOS.tar.gz PhageGrowthAnalyzer-macOS
+          cd ..
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            */*.zip
-            */*.tar.gz
+            PhageGrowthAnalyzer-Windows.zip
+            PhageGrowthAnalyzer-Linux.tar.gz
+            PhageGrowthAnalyzer-macOS.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
