@@ -1,0 +1,107 @@
+name: Build and Release Executables
+
+on:
+  push:
+    tags:
+      - 'v*' # Запускать при push тегов вида v1.0.0, v0.1.0 и т.д.
+  workflow_dispatch: # Возможность запуска вручную через интерфейс GitHub
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: PhageGrowthAnalyzer-Windows.exe
+            asset_name: PhageGrowthAnalyzer-Windows.exe
+            build_cmd: pyinstaller --noconfirm --onedir --windowed --name PhageGrowthAnalyzer main.py
+            output_path: dist/PhageGrowthAnalyzer/PhageGrowthAnalyzer.exe
+
+          - os: ubuntu-latest
+            artifact_name: PhageGrowthAnalyzer-Linux
+            asset_name: PhageGrowthAnalyzer-Linux
+            build_cmd: pyinstaller --noconfirm --onedir --windowed --name PhageGrowthAnalyzer main.py
+            output_path: dist/PhageGrowthAnalyzer/PhageGrowthAnalyzer
+
+          - os: macos-latest
+            artifact_name: PhageGrowthAnalyzer-macOS
+            asset_name: PhageGrowthAnalyzer-macOS
+            build_cmd: pyinstaller --noconfirm --onedir --windowed --name PhageGrowthAnalyzer main.py
+            output_path: dist/PhageGrowthAnalyzer/PhageGrowthAnalyzer
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      # Системные зависимости для Linux, необходимые Qt / PySide6
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1-mesa \
+            libgl1-mesa-glx \
+            libxcb-cursor0 \
+            libxcb-xinerama0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-render-util0 \
+            libxcb-shape0
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: ${{ matrix.build_cmd }}
+
+      # Архивация каталогов для корректной передачи папок с зависимостями
+      - name: Compress Build Directory (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          powershell Compress-Archive -Path dist/PhageGrowthAnalyzer -DestinationPath PhageGrowthAnalyzer-Windows.zip
+
+      - name: Compress Build Directory (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: |
+          tar -czvf PhageGrowthAnalyzer-${{ runner.os }}.tar.gz -C dist PhageGrowthAnalyzer
+
+      # Загрузка собранных артефактов
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            PhageGrowthAnalyzer-Windows.zip
+            PhageGrowthAnalyzer-*.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Display downloaded files
+        run: ls -R
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            */*.zip
+            */*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
